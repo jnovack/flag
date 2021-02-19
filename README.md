@@ -61,6 +61,7 @@ and configuration files:
 | bool   | -female       | FEMALE=true  | female true  |
 | float  | -length 175.5 | LENGTH=175.5 | length 175.5 |
 | string | -name Gloria  | NAME=Gloria  | name Gloria  |
+| string | -last-name Estefan  | LAST_NAME=Estefan  | last-name Estefan  |
 
 This package is a port of Go's [flag][] package from the standard library with
 the addition of two functions `ParseEnv` and `ParseFile`.
