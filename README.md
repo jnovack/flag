@@ -63,7 +63,8 @@ and configuration files:
 | string | -name Gloria  | NAME=Gloria  | name Gloria  |
 | string | -last-name Estefan  | LAST_NAME=Estefan  | last-name Estefan  |
 
-Note that dashes in variable names are equivalent to underscores when using environment variables.
+Note that dashes in variable names are equivalent to underscores when using
+environment variables.
 
 This package is a port of Go's [flag][] package from the standard library with
 the addition of two functions `ParseEnv` and `ParseFile`.
