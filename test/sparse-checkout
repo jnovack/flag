@@ -1,0 +1,11 @@
+!/*/
+!/src/*/
+/src/internal/
+!/src/internal/*/
+/src/flag/
+/src/internal/cfg/
+/src/internal/diff/
+/src/internal/goarch/
+/src/internal/platform/
+/src/internal/testenv/
+/src/internal/txtar/

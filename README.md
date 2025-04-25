@@ -135,7 +135,7 @@ flag.String(flag.DefaultConfigFlagname, "", "path to config file")
 Run the command:
 
 ```go
-$ go run ./gopher.go -config ./gopher.conf
+go run ./gopher.go -config ./gopher.conf
 ```
 
 The default flag name for the configuration file is "config" and can be

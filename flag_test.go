@@ -9,13 +9,17 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
+	"os/exec"
+	"regexp"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	. "github.com/jnovack/flag"
+	"github.com/jnovack/flag/internal/testenv"
 )
 
 func boolString(s string) string {
@@ -36,6 +40,7 @@ func TestEverything(t *testing.T) {
 	Float64("test_float64", 0, "float64 value")
 	Duration("test_duration", 0, "time.Duration value")
 	Func("test_func", "func value", func(string) error { return nil })
+	BoolFunc("test_boolfunc", "func", func(string) error { return nil })
 
 	m := make(map[string]*Flag)
 	desired := "0"
@@ -52,6 +57,8 @@ func TestEverything(t *testing.T) {
 				ok = true
 			case f.Name == "test_func" && f.Value.String() == "":
 				ok = true
+			case f.Name == "test_boolfunc" && f.Value.String() == "":
+				ok = true
 			}
 			if !ok {
 				t.Error("Visit: bad value", f.Value.String(), "for", f.Name)
@@ -59,7 +66,7 @@ func TestEverything(t *testing.T) {
 		}
 	}
 	VisitAll(visitor)
-	if len(m) != 9 {
+	if len(m) != 10 {
 		t.Error("VisitAll misses some flags")
 		for k, v := range m {
 			t.Log(k, *v)
@@ -83,9 +90,10 @@ func TestEverything(t *testing.T) {
 	Set("test_float64", "1")
 	Set("test_duration", "1s")
 	Set("test_func", "1")
+	Set("test_boolfunc", "")
 	desired = "1"
 	Visit(visitor)
-	if len(m) != 9 {
+	if len(m) != 10 {
 		t.Error("Visit fails after set")
 		for k, v := range m {
 			t.Log(k, *v)
@@ -94,7 +102,7 @@ func TestEverything(t *testing.T) {
 	// Now test they're visited in sort order.
 	var flagNames []string
 	Visit(func(f *Flag) { flagNames = append(flagNames, f.Name) })
-	if !sort.StringsAreSorted(flagNames) {
+	if !slices.IsSorted(flagNames) {
 		t.Errorf("flag names not sorted: %v", flagNames)
 	}
 }
@@ -244,6 +252,7 @@ func (f *flagVar) Set(value string) error {
 func TestUserDefined(t *testing.T) {
 	var flags FlagSet
 	flags.Init("test", ContinueOnError)
+	flags.SetOutput(io.Discard)
 	var v flagVar
 	flags.Var(&v, "v", "usage")
 	if err := flags.Parse([]string{"-v", "1", "-v", "2", "-v=3"}); err != nil {
@@ -259,8 +268,8 @@ func TestUserDefined(t *testing.T) {
 }
 
 func TestUserDefinedFunc(t *testing.T) {
-	var flags FlagSet
-	flags.Init("test", ContinueOnError)
+	flags := NewFlagSet("test", ContinueOnError)
+	flags.SetOutput(io.Discard)
 	var ss []string
 	flags.Func("v", "usage", func(s string) error {
 		ss = append(ss, s)
@@ -284,7 +293,8 @@ func TestUserDefinedFunc(t *testing.T) {
 		t.Errorf("usage string not included: %q", usage)
 	}
 	// test Func error
-	flags = *NewFlagSet("test", ContinueOnError)
+	flags = NewFlagSet("test", ContinueOnError)
+	flags.SetOutput(io.Discard)
 	flags.Func("v", "usage", func(s string) error {
 		return fmt.Errorf("test error")
 	})
@@ -333,6 +343,7 @@ func (b *boolFlagVar) IsBoolFlag() bool {
 func TestUserDefinedBool(t *testing.T) {
 	var flags FlagSet
 	flags.Init("test", ContinueOnError)
+	flags.SetOutput(io.Discard)
 	var b boolFlagVar
 	var err error
 	flags.Var(&b, "b", "usage")
@@ -351,9 +362,34 @@ func TestUserDefinedBool(t *testing.T) {
 	}
 }
 
+func TestUserDefinedBoolUsage(t *testing.T) {
+	var flags FlagSet
+	flags.Init("test", ContinueOnError)
+	var buf bytes.Buffer
+	flags.SetOutput(&buf)
+	var b boolFlagVar
+	flags.Var(&b, "b", "X")
+	b.count = 0
+	// b.IsBoolFlag() will return true and usage will look boolean.
+	flags.PrintDefaults()
+	got := buf.String()
+	want := "  -b\tX\n"
+	if got != want {
+		t.Errorf("false: want %q; got %q", want, got)
+	}
+	b.count = 4
+	// b.IsBoolFlag() will return false and usage will look non-boolean.
+	flags.PrintDefaults()
+	got = buf.String()
+	want = "  -b\tX\n  -b value\n    \tX\n"
+	if got != want {
+		t.Errorf("false: want %q; got %q", want, got)
+	}
+}
+
 func TestSetOutput(t *testing.T) {
 	var flags FlagSet
-	var buf bytes.Buffer
+	var buf strings.Builder
 	flags.SetOutput(&buf)
 	flags.Init("test", ContinueOnError)
 	flags.Parse([]string{"-unknown"})
@@ -427,6 +463,25 @@ func TestHelp(t *testing.T) {
 	}
 }
 
+// zeroPanicker is a flag.Value whose String method panics if its dontPanic
+// field is false.
+type zeroPanicker struct {
+	dontPanic bool
+	v         string
+}
+
+func (f *zeroPanicker) Set(s string) error {
+	f.v = s
+	return nil
+}
+
+func (f *zeroPanicker) String() string {
+	if !f.dontPanic {
+		panic("panic!")
+	}
+	return f.v
+}
+
 const defaultOutput = `  -A	for bootstrapping, allow 'any' type
   -Alongflagname
     	disable bounds checking
@@ -447,15 +502,24 @@ const defaultOutput = `  -A	for bootstrapping, allow 'any' type
     	a non-zero int (default 27)
   -O	a flag
     	multiline help string (default true)
+  -V list
+    	a list of strings (default [a b])
   -Z int
     	an int that defaults to zero
+  -ZP0 value
+    	a flag whose String method panics when it is zero
+  -ZP1 value
+    	a flag whose String method panics when it is zero
   -maxT timeout
     	set timeout for dial
+
+panic calling String method on zero flag_test.zeroPanicker for flag ZP0: panic!
+panic calling String method on zero flag_test.zeroPanicker for flag ZP1: panic!
 `
 
 func TestPrintDefaults(t *testing.T) {
 	fs := NewFlagSet("print defaults test", ContinueOnError)
-	var buf bytes.Buffer
+	var buf strings.Builder
 	fs.SetOutput(&buf)
 	fs.Bool("A", false, "for bootstrapping, allow 'any' type")
 	fs.Bool("Alongflagname", false, "disable bounds checking")
@@ -467,12 +531,15 @@ func TestPrintDefaults(t *testing.T) {
 	fs.String("M", "", "a multiline\nhelp\nstring")
 	fs.Int("N", 27, "a non-zero int")
 	fs.Bool("O", true, "a flag\nmultiline help string")
+	fs.Var(&flagVar{"a", "b"}, "V", "a `list` of strings")
 	fs.Int("Z", 0, "an int that defaults to zero")
+	fs.Var(&zeroPanicker{true, ""}, "ZP0", "a flag whose String method panics when it is zero")
+	fs.Var(&zeroPanicker{true, "something"}, "ZP1", "a flag whose String method panics when it is zero")
 	fs.Duration("maxT", 0, "set `timeout` for dial")
 	fs.PrintDefaults()
 	got := buf.String()
 	if got != defaultOutput {
-		t.Errorf("got %q want %q\n", got, defaultOutput)
+		t.Errorf("got:\n%q\nwant:\n%q", got, defaultOutput)
 	}
 }
 
@@ -495,7 +562,7 @@ func TestIntFlagOverflow(t *testing.T) {
 // Issue 20998: Usage should respect CommandLine.output.
 func TestUsageOutput(t *testing.T) {
 	ResetForTesting(DefaultUsage)
-	var buf bytes.Buffer
+	var buf strings.Builder
 	CommandLine.SetOutput(&buf)
 	defer func(old []string) { os.Args = old }(os.Args)
 	os.Args = []string{"app", "-i=1", "-unknown"}
@@ -591,8 +658,6 @@ func TestRangeError(t *testing.T) {
 	}
 }
 
-// jnovack/flag cannot import TextExitCode because it relies on internal/testenv
-/*
 func TestExitCode(t *testing.T) {
 	testenv.MustHaveExec(t)
 
@@ -637,7 +702,7 @@ func TestExitCode(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		cmd := exec.Command(os.Args[0], "-test.run=TestExitCode")
+		cmd := exec.Command(testenv.Executable(t), "-test.run=^TestExitCode$")
 		cmd.Env = append(
 			os.Environ(),
 			"GO_CHILD_FLAG="+test.flag,
@@ -663,7 +728,7 @@ func mustPanic(t *testing.T, testName string, expected string, f func()) {
 		case nil:
 			t.Errorf("%s\n: expected panic(%q), but did not panic", testName, expected)
 		case string:
-			if msg != expected {
+			if ok, _ := regexp.MatchString(expected, msg); !ok {
 				t.Errorf("%s\n: expected panic(%q), but got panic(%q)", testName, expected, msg)
 			}
 		default:
@@ -692,7 +757,7 @@ func TestInvalidFlags(t *testing.T) {
 		testName := fmt.Sprintf("FlagSet.Var(&v, %q, \"\")", test.flag)
 
 		fs := NewFlagSet("", ContinueOnError)
-		buf := bytes.NewBuffer(nil)
+		buf := &strings.Builder{}
 		fs.SetOutput(buf)
 
 		mustPanic(t, testName, test.errorMsg, func() {
@@ -724,7 +789,7 @@ func TestRedefinedFlags(t *testing.T) {
 		testName := fmt.Sprintf("flag redefined in FlagSet(%q)", test.flagSetName)
 
 		fs := NewFlagSet(test.flagSetName, ContinueOnError)
-		buf := bytes.NewBuffer(nil)
+		buf := &strings.Builder{}
 		fs.SetOutput(buf)
 
 		var v flagVar
@@ -738,4 +803,57 @@ func TestRedefinedFlags(t *testing.T) {
 		}
 	}
 }
-*/
+
+func TestUserDefinedBoolFunc(t *testing.T) {
+	flags := NewFlagSet("test", ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var ss []string
+	flags.BoolFunc("v", "usage", func(s string) error {
+		ss = append(ss, s)
+		return nil
+	})
+	if err := flags.Parse([]string{"-v", "", "-v", "1", "-v=2"}); err != nil {
+		t.Error(err)
+	}
+	if len(ss) != 1 {
+		t.Fatalf("got %d args; want 1 arg", len(ss))
+	}
+	want := "[true]"
+	if got := fmt.Sprint(ss); got != want {
+		t.Errorf("got %q; want %q", got, want)
+	}
+	// test usage
+	var buf strings.Builder
+	flags.SetOutput(&buf)
+	flags.Parse([]string{"-h"})
+	if usage := buf.String(); !strings.Contains(usage, "usage") {
+		t.Errorf("usage string not included: %q", usage)
+	}
+	// test BoolFunc error
+	flags = NewFlagSet("test", ContinueOnError)
+	flags.SetOutput(io.Discard)
+	flags.BoolFunc("v", "usage", func(s string) error {
+		return fmt.Errorf("test error")
+	})
+	// flag not set, so no error
+	if err := flags.Parse(nil); err != nil {
+		t.Error(err)
+	}
+	// flag set, expect error
+	if err := flags.Parse([]string{"-v", ""}); err == nil {
+		t.Error("got err == nil; want err != nil")
+	} else if errMsg := err.Error(); !strings.Contains(errMsg, "test error") {
+		t.Errorf(`got %q; error should contain "test error"`, errMsg)
+	}
+}
+
+func TestDefineAfterSet(t *testing.T) {
+	flags := NewFlagSet("test", ContinueOnError)
+	// Set by itself doesn't panic.
+	flags.Set("myFlag", "value")
+
+	// Define-after-set panics.
+	mustPanic(t, "DefineAfterSet", "flag myFlag set at .*/flag_test.go:.* before being defined", func() {
+		_ = flags.String("myFlag", "default", "usage")
+	})
+}
