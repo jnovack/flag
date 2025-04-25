@@ -114,6 +114,14 @@ func (f *FlagSet) ParseFile(path string) error {
 	}
 	defer fp.Close()
 
+	// Allow multiple values for the same flag while still allowing arguments to take precedence.
+	// We create a temporary map that stores if an arg has already been set but won't be modified
+	// when we set args while parsing the file.
+	hasArg := make(map[string]bool)
+	for name := range f.actual {
+		hasArg[name] = true
+	}
+
 	scanner := bufio.NewScanner(fp)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -144,7 +152,7 @@ func (f *FlagSet) ParseFile(path string) error {
 		}
 
 		// Ignore flag when already set; arguments have precedence over file
-		if f.actual[name] != nil {
+		if hasArg[name] {
 			continue
 		}
 
