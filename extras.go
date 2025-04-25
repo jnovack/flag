@@ -139,7 +139,7 @@ func (f *FlagSet) ParseFile(path string) error {
 			}
 		}
 
-		if hasValue == false {
+		if !hasValue {
 			name = line
 		}
 
