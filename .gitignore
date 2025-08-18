@@ -1,4 +1,4 @@
 internal/**
 third_party/**
 !README.md
-.gitmodules
+flag_test.go
