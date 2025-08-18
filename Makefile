@@ -8,6 +8,7 @@ all: update
 clean:
 	git restore --staged third_party/go || true
 	rm -rf third_party/go internal/** flag_test.go .git/modules/third_party .gitmodules
+	mkdir -p internal
 
 update: clean
 	git clone --depth=1 --no-checkout https://github.com/golang/go third_party/go
