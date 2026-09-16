@@ -66,3 +66,25 @@ jobs:
           ESCAPED_MODULE=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')
           curl https://proxy.golang.org/github.com/$ESCAPED_MODULE/@v/$GITHUB_REF_NAME.info
           curl https://sum.golang.org/lookup/github.com/$ESCAPED_MODULE@$GITHUB_REF_NAME
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    # Gated on test only: a Codecov upload hiccup should not block a release.
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Skip when the release already exists (hand-made, or a re-run), since
+        # `gh release create` fails on a duplicate and would turn the run red.
+        run: |
+          if gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; skipping."
+          else
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+          fi
