@@ -3,6 +3,11 @@ include go.mk
 
 .PHONY: update clean correct test
 
+# GO_TAG is the golang/go release whose src/flag this package tracks. It must
+# be a release tag, not master: master carries unreleased flag changes (and
+# tests for them) that flag.go has not merged, so flag_test.go would not compile.
+GO_TAG ?= go1.26.8
+
 all: update
 
 clean:
@@ -11,7 +16,7 @@ clean:
 	mkdir -p internal
 
 update: clean
-	git clone --depth=1 --no-checkout https://github.com/golang/go third_party/go
+	git clone --depth=1 --no-checkout --branch $(GO_TAG) https://github.com/golang/go third_party/go
 	git submodule add -f https://github.com/golang/go/ third_party/go
 	git submodule absorbgitdirs
 	git -C third_party/go config core.sparseCheckout true

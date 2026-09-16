@@ -10,12 +10,14 @@ jobs:
     name: Test and Build
     strategy:
       matrix:
-        go-version: [1.24.x, 1.25.x]
+        # Oldest entry must be >= Makefile GO_TAG: the copied internal/testenv
+        # uses that release's stdlib APIs, so older toolchains fail to build tests.
+        go-version: [1.26.x, 1.27.x]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go-version }}
 
@@ -33,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run make
         run: make update && make correct
@@ -42,7 +44,7 @@ jobs:
         run: go test -v . -coverprofile=coverage.txt -covermode=atomic
 
       - name: Publish coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
 
   finalize:
     name: Final Step
@@ -54,4 +56,4 @@ jobs:
         run: |
           ESCAPED_MODULE=$(echo $GITHUB_REPOSITORY | tr '[:upper:]' '[:lower:]')
           curl https://proxy.golang.org/github.com/$ESCAPED_MODULE/@v/$GITHUB_REF_NAME.info
-          curl curl https://sum.golang.org/lookup/github.com/$ESCAPED_MODULE@$GITHUB_REF_NAME
+          curl https://sum.golang.org/lookup/github.com/$ESCAPED_MODULE@$GITHUB_REF_NAME
