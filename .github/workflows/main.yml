@@ -4,7 +4,7 @@ on:
     branches:
       - main
     tags:
-      - '*'
+      - "*"
 jobs:
   test:
     name: Test and Build
@@ -20,7 +20,7 @@ jobs:
           go-version: ${{ matrix.go-version }}
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Run make
         run: make update && make correct
